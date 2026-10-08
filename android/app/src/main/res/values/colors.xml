@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bar_bg">#1F2937</color>
+    <color name="bar_fg">#F9FAFB</color>
+    <color name="editor_bg">#FBFBFD</color>
+    <color name="editor_fg">#1F2937</color>
+    <color name="output_bg">#111827</color>
+    <color name="output_fg">#A7F3D0</color>
+    <color name="symbol_bg">#E5E7EB</color>
+</resources>
