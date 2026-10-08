@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">محرر EE#</string>
+    <string name="title">EE#</string>
+    <string name="run">▶ تشغيل</string>
+    <string name="stop">■ إيقاف</string>
+    <string name="open">فتح</string>
+    <string name="save">حفظ</string>
+    <string name="example">مثال</string>
+    <string name="format">تنسيق</string>
+    <string name="theme">◐ السمة</string>
+    <string name="formatted">تم تنسيق الكود</string>
+    <string name="stdin_hint">المدخلات (سطر لكل استدعاء اقرأ)</string>
+    <string name="output_hint">المخرجات ستظهر هنا…</string>
+    <string name="running">… جارٍ التشغيل</string>
+    <string name="no_output">(لا مخرجات)</string>
+    <string name="saved">تم الحفظ</string>
+    <string name="opened">تم فتح الملف</string>
+    <string name="io_error">تعذّرت العملية على الملف</string>
+</resources>
