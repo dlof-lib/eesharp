@@ -51,7 +51,7 @@ final class SyntaxScanner {
     private static final Pattern NUMBERS =
             Pattern.compile("[0-9٠-٩۰-۹]+(?:[.٫][0-9٠-٩۰-۹]+)?");
 
-    private static final Pattern SEPARATORS = Pattern.compile("[؛;]");
+    private static final Pattern SEPARATORS = Pattern.compile("[؛;×÷−≠≤≥←]");
 
     private SyntaxScanner() {}
 
