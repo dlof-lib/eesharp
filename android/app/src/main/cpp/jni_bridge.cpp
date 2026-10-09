@@ -19,6 +19,7 @@ std::string toStd(JNIEnv* env, jbyteArray a) {
 
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_com_eesharp_ide_Native_run(JNIEnv* env, jclass, jbyteArray src, jbyteArray input) {
+  ee::set_default_platform("اندرويد");  // <<منصة>> داخل المحرر
   std::string source = toStd(env, src);
   std::istringstream in(toStd(env, input));
   std::ostringstream out;  // المخرجات والأخطاء في مجرى واحد للحفاظ على الترتيب
