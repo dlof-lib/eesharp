@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fbf8f3; --fg:#26221c; --card:#fff; --line:#e4ddd0; --accent:#8a5a2b; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1c1a17; --fg:#ece6da; --card:#25221e; --line:#3a352e; --accent:#d9a066; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.7 system-ui, "Noto Naskh Arabic", sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.25rem; margin:0 0 12px; color:var(--accent); }
+  #ee-output { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; min-height:6rem;
+               white-space:pre-wrap; word-break:break-word; margin:0; font:inherit; }
+  #app { margin:12px 0; }
+  button { font:inherit; padding:8px 16px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--fg); }
+  button:active { background:var(--line); }
+</style>
+</head>
+<body>
+<main>
+  <h1>{{TITLE}}</h1>
+  <!-- حاوية اختيارية يتحكم بها البرنامج عبر $صدفة_html و$صدفة_اربط -->
+  <div id="app"></div>
+  <!-- مخرجات $اعرض / $اكتب -->
+  <pre id="ee-output" aria-live="polite"></pre>
+</main>
+<script src="ee-runtime.js"></script>
+<script src="ee-shell.js"></script>
+<script>
+  EE.configure({ platform: "{{PLATFORM}}", output: "#ee-output", maxOutput: 4000000 });
+  EEShell.install(EE);
+</script>
+<script src="program.js"></script>
+</body>
+</html>
