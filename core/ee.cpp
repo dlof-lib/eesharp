@@ -381,7 +381,7 @@ struct FuncDef;
 using EP = std::shared_ptr<Expr>;
 using SP = std::shared_ptr<Stmt>;
 
-enum class EK { Num, Str, Bool, Null, Var, List, Unary, Binary, And, Or, Assign, Index, Call, Lambda, FnRef };
+enum class EK { Num, Str, Bool, Null, Var, List, Unary, Binary, And, Or, Assign, Index, Call, Lambda, FnRef, BigLit };
 
 struct Expr {
   EK k = EK::Null;
@@ -893,8 +893,10 @@ struct Parser {
     int line = tk.line;
     switch (tk.k) {
       case TK::Num: {
-        EP e = mkE(EK::Num, line);
+        bool isInt = tk.text.find('.') == std::string::npos;
+        EP e = mkE(isInt && tk.text.size() > 15 ? EK::BigLit : EK::Num, line);
         e->num = tk.num;
+        e->s = tk.text;
         adv();
         return e;
       }
@@ -961,6 +963,312 @@ struct Parser {
   }
 };
 
+// ───────────────────────── الأعداد الكبيرة (BigInt) ─────────────────────────
+//
+// عدد صحيح بلا حدّ: إشارة + أجزاء بالأساس 10^9 (الأصغر أولاً، والصفر = قائمة فارغة).
+// يدعم + - * وقسمة طويلة (قاطعة نحو الصفر كـ C++)، وأسّاً سريعاً، وأسّاً بالباقي،
+// واختبار أولية Miller–Rabin. هذا الصنف هو الجزء "الصعب" الذي يختصره EE# في أسطر قليلة.
+
+struct BigInt {
+  static constexpr uint32_t BASE = 1000000000u;
+  static constexpr size_t MAX_LIMBS = 120000;  // ≈ مليون خانة عشرية
+  bool neg = false;
+  std::vector<uint32_t> d;
+
+  bool zero() const { return d.empty(); }
+  void trim() {
+    while (!d.empty() && d.back() == 0) d.pop_back();
+    if (d.empty()) neg = false;
+  }
+  static void checkSize(const BigInt& r) {
+    if (r.d.size() > MAX_LIMBS) throw EEError{0, "النتيجة كبيرة جداً (أكثر من مليون خانة)"};
+  }
+  static void checkStop() {
+    if (g_stop.load()) throw EEError{0, "تم إيقاف البرنامج"};
+  }
+
+  static BigInt fromInt(long long v) {
+    BigInt r;
+    unsigned long long u;
+    if (v < 0) {
+      r.neg = true;
+      u = 0ULL - static_cast<unsigned long long>(v);
+    } else {
+      u = static_cast<unsigned long long>(v);
+    }
+    while (u) {
+      r.d.push_back(static_cast<uint32_t>(u % BASE));
+      u /= BASE;
+    }
+    r.trim();
+    return r;
+  }
+
+  // يقبل: [+-] أرقام (عربية أو لاتينية) مع مسافات حول الرقم
+  static bool parse(const std::string& in, BigInt& out) {
+    std::string s = toAsciiDigits(in);
+    auto ws = [](char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; };
+    size_t b = 0, e = s.size();
+    while (b < e && ws(s[b])) b++;
+    while (e > b && ws(s[e - 1])) e--;
+    bool negative = false;
+    if (b < e && (s[b] == '-' || s[b] == '+')) {
+      negative = s[b] == '-';
+      b++;
+    }
+    if (b >= e) return false;
+    for (size_t i = b; i < e; i++)
+      if (s[i] < '0' || s[i] > '9') return false;
+    out = BigInt();
+    for (size_t hi = e; hi > b;) {
+      size_t lo = hi >= b + 9 ? hi - 9 : b;
+      uint32_t limb = 0;
+      for (size_t i = lo; i < hi; i++) limb = limb * 10 + static_cast<uint32_t>(s[i] - '0');
+      out.d.push_back(limb);
+      hi = lo;
+    }
+    out.neg = negative;
+    out.trim();
+    checkSize(out);
+    return true;
+  }
+
+  std::string str() const {
+    if (d.empty()) return "0";
+    std::string s = neg ? "-" : "";
+    s += std::to_string(d.back());
+    char buf[16];
+    for (size_t i = d.size() - 1; i-- > 0;) {
+      std::snprintf(buf, sizeof buf, "%09u", d[i]);
+      s += buf;
+    }
+    return s;
+  }
+
+  double toDouble() const {
+    double r = 0;
+    for (size_t i = d.size(); i-- > 0;) r = r * BASE + d[i];
+    return neg ? -r : r;
+  }
+
+  static int cmpAbs(const BigInt& a, const BigInt& b) {
+    if (a.d.size() != b.d.size()) return a.d.size() < b.d.size() ? -1 : 1;
+    for (size_t i = a.d.size(); i-- > 0;)
+      if (a.d[i] != b.d[i]) return a.d[i] < b.d[i] ? -1 : 1;
+    return 0;
+  }
+  static int cmp(const BigInt& a, const BigInt& b) {
+    if (a.neg != b.neg) return a.neg ? -1 : 1;
+    int c = cmpAbs(a, b);
+    return a.neg ? -c : c;
+  }
+
+  static BigInt addAbs(const BigInt& a, const BigInt& b) {
+    BigInt r;
+    uint64_t carry = 0;
+    size_t n = std::max(a.d.size(), b.d.size());
+    for (size_t i = 0; i < n || carry; i++) {
+      uint64_t cur = carry;
+      if (i < a.d.size()) cur += a.d[i];
+      if (i < b.d.size()) cur += b.d[i];
+      r.d.push_back(static_cast<uint32_t>(cur % BASE));
+      carry = cur / BASE;
+    }
+    return r;
+  }
+  // |a| >= |b|
+  static BigInt subAbs(const BigInt& a, const BigInt& b) {
+    BigInt r;
+    int64_t borrow = 0;
+    for (size_t i = 0; i < a.d.size(); i++) {
+      int64_t cur = static_cast<int64_t>(a.d[i]) - borrow - (i < b.d.size() ? static_cast<int64_t>(b.d[i]) : 0);
+      borrow = cur < 0 ? 1 : 0;
+      if (cur < 0) cur += BASE;
+      r.d.push_back(static_cast<uint32_t>(cur));
+    }
+    r.trim();
+    return r;
+  }
+
+  static BigInt add(const BigInt& a, const BigInt& b) {
+    BigInt r;
+    if (a.neg == b.neg) {
+      r = addAbs(a, b);
+      r.neg = a.neg;
+    } else if (cmpAbs(a, b) >= 0) {
+      r = subAbs(a, b);
+      r.neg = a.neg;
+    } else {
+      r = subAbs(b, a);
+      r.neg = b.neg;
+    }
+    r.trim();
+    checkSize(r);
+    return r;
+  }
+  static BigInt sub(const BigInt& a, const BigInt& b) {
+    BigInt nb = b;
+    if (!nb.zero()) nb.neg = !nb.neg;
+    return add(a, nb);
+  }
+
+  // |a| * m  حيث m <= BASE
+  static BigInt mulSmall(const BigInt& a, uint32_t m) {
+    BigInt r;
+    uint64_t carry = 0;
+    for (size_t i = 0; i < a.d.size() || carry; i++) {
+      uint64_t cur = carry + (i < a.d.size() ? static_cast<uint64_t>(a.d[i]) * m : 0);
+      r.d.push_back(static_cast<uint32_t>(cur % BASE));
+      carry = cur / BASE;
+    }
+    r.trim();
+    return r;
+  }
+
+  static BigInt mul(const BigInt& a, const BigInt& b) {
+    if (a.zero() || b.zero()) return BigInt();
+    BigInt r;
+    if (b.d.size() == 1 || a.d.size() == 1) {
+      r = b.d.size() == 1 ? mulSmall(a, b.d[0]) : mulSmall(b, a.d[0]);
+    } else {
+      r.d.assign(a.d.size() + b.d.size(), 0);
+      for (size_t i = 0; i < a.d.size(); i++) {
+        checkStop();
+        uint64_t carry = 0;
+        for (size_t j = 0; j < b.d.size(); j++) {
+          uint64_t cur = r.d[i + j] + static_cast<uint64_t>(a.d[i]) * b.d[j] + carry;
+          r.d[i + j] = static_cast<uint32_t>(cur % BASE);
+          carry = cur / BASE;
+        }
+        r.d[i + b.d.size()] = static_cast<uint32_t>(carry);
+      }
+    }
+    r.neg = a.neg != b.neg;
+    r.trim();
+    checkSize(r);
+    return r;
+  }
+
+  // يقسم |a| على m (m <= BASE) في المكان، ويعيد الباقي
+  static uint32_t divSmall(BigInt& a, uint32_t m) {
+    uint64_t rem = 0;
+    for (size_t i = a.d.size(); i-- > 0;) {
+      uint64_t cur = a.d[i] + rem * BASE;
+      a.d[i] = static_cast<uint32_t>(cur / m);
+      rem = cur % m;
+    }
+    a.trim();
+    return static_cast<uint32_t>(rem);
+  }
+
+  // قسمة طويلة: a = q*b + r  (q قاطع نحو الصفر، وإشارة r كإشارة a). b != 0
+  static void divmod(const BigInt& a, const BigInt& b, BigInt& q, BigInt& r) {
+    BigInt qq, rr;
+    if (cmpAbs(a, b) < 0) {
+      rr = a;
+    } else if (b.d.size() == 1) {
+      qq = a;
+      qq.neg = false;
+      uint32_t rem = divSmall(qq, b.d[0]);
+      rr = fromInt(rem);
+      rr.neg = a.neg && rem != 0;
+    } else {
+      BigInt babs = b;
+      babs.neg = false;
+      BigInt rem;
+      qq.d.assign(a.d.size(), 0);
+      for (size_t i = a.d.size(); i-- > 0;) {
+        checkStop();
+        rem.d.insert(rem.d.begin(), a.d[i]);  // rem = rem*BASE + limb
+        rem.trim();
+        uint32_t lo = 0, hi = BASE - 1;       // أكبر رقم خارج قسمة لا يتجاوز rem
+        while (lo < hi) {
+          uint32_t mid = lo + (hi - lo + 1) / 2;
+          if (cmpAbs(mulSmall(babs, mid), rem) <= 0) lo = mid;
+          else hi = mid - 1;
+        }
+        if (lo) rem = subAbs(rem, mulSmall(babs, lo));
+        qq.d[i] = lo;
+      }
+      rr = rem;
+      rr.neg = a.neg && !rr.zero();
+    }
+    qq.neg = a.neg != b.neg;
+    qq.trim();
+    rr.trim();
+    q = qq;
+    r = rr;
+  }
+
+  static BigInt pow(BigInt base, unsigned long long e) {
+    BigInt r = fromInt(1);
+    while (e) {
+      checkStop();
+      if (e & 1) r = mul(r, base);
+      e >>= 1;
+      if (e) base = mul(base, base);
+    }
+    return r;
+  }
+
+  // base^e mod m  (بتربيع متكرر؛ لا ينتج أعداداً أكبر من m^2 أبداً)
+  static BigInt modpow(BigInt base, BigInt e, BigInt m) {
+    m.neg = false;
+    if (m.zero()) throw EEError{0, "الباقي لا يمكن أن يكون صفراً"};
+    if (e.neg) throw EEError{0, "الأس يجب أن يكون غير سالب"};
+    BigInt q, r, one = fromInt(1), result;
+    divmod(one, m, q, result);
+    BigInt tmp;
+    divmod(base, m, q, tmp);
+    base = tmp.neg ? add(tmp, m) : tmp;
+    while (!e.zero()) {
+      checkStop();
+      if (e.d[0] & 1u) {
+        divmod(mul(result, base), m, q, r);
+        result = r;
+      }
+      divSmall(e, 2);
+      if (!e.zero()) {
+        divmod(mul(base, base), m, q, r);
+        base = r;
+      }
+    }
+    return result;
+  }
+
+  // Miller–Rabin بالأسس 2..37: حتمي لكل n < 3.3×10^24، ومحتمل بيقين عالٍ جداً بعدها
+  static bool isPrime(const BigInt& n) {
+    static const unsigned small[] = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37};
+    if (n.neg || n.zero() || cmp(n, fromInt(2)) < 0) return false;
+    for (unsigned p : small) {
+      if (cmp(n, fromInt(p)) == 0) return true;
+      BigInt t = n;
+      if (divSmall(t, p) == 0) return false;
+    }
+    BigInt one = fromInt(1);
+    BigInt nm1 = sub(n, one), dd = nm1;
+    int s = 0;
+    while (!(dd.d[0] & 1u)) {
+      divSmall(dd, 2);
+      s++;
+    }
+    for (unsigned a : small) {
+      BigInt x = modpow(fromInt(a), dd, n);
+      if (cmp(x, one) == 0 || cmp(x, nm1) == 0) continue;
+      bool composite = true;
+      for (int i = 1; i < s; i++) {
+        BigInt q, r;
+        divmod(mul(x, x), n, q, r);
+        x = r;
+        if (cmp(x, nm1) == 0) { composite = false; break; }
+        if (cmp(x, one) == 0) break;
+      }
+      if (composite) return false;
+    }
+    return true;
+  }
+};
+
 // ───────────────────────── القيم ─────────────────────────
 
 struct Env;
@@ -968,7 +1276,7 @@ struct FuncObj;
 struct NativeObj;
 struct Interp;
 
-enum class VT { Null, Num, Bool, Str, List, Func, Native };
+enum class VT { Null, Num, Bool, Str, List, Func, Native, Big };
 
 struct Value {
   VT t = VT::Null;
@@ -978,6 +1286,7 @@ struct Value {
   std::shared_ptr<std::vector<Value>> list;
   std::shared_ptr<FuncObj> fn;
   std::shared_ptr<NativeObj> nat;
+  std::shared_ptr<BigInt> big;
 };
 
 using Args = std::vector<Value>;
@@ -1007,12 +1316,14 @@ struct Env {
 Value mkNum(double d) { Value v; v.t = VT::Num; v.n = d; return v; }
 Value mkBool(bool b) { Value v; v.t = VT::Bool; v.b = b; return v; }
 Value mkStr(const std::string& s) { Value v; v.t = VT::Str; v.s = s; return v; }
+Value mkBig(const BigInt& b) { Value v; v.t = VT::Big; v.big = std::make_shared<BigInt>(b); return v; }
 Value mkListP(std::shared_ptr<std::vector<Value>> l) { Value v; v.t = VT::List; v.list = std::move(l); return v; }
 
 std::string typeName(const Value& v) {
   switch (v.t) {
     case VT::Null: return "عدم";
     case VT::Num: return "رقم";
+    case VT::Big: return "عدد_كبير";
     case VT::Bool: return "منطقي";
     case VT::Str: return "نص";
     case VT::List: return "قائمة";
@@ -1025,6 +1336,7 @@ bool truthy(const Value& v) {
   switch (v.t) {
     case VT::Null: return false;
     case VT::Num: return v.n != 0;
+    case VT::Big: return !v.big->zero();
     case VT::Bool: return v.b;
     case VT::Str: return !v.s.empty();
     case VT::List: return !v.list->empty();
@@ -1049,6 +1361,7 @@ std::string toStr(const Value& v, bool quote = false) {
   switch (v.t) {
     case VT::Null: return "عدم";
     case VT::Num: return fmtNum(v.n);
+    case VT::Big: return v.big->str();
     case VT::Bool: return v.b ? "صح" : "خطأ";
     case VT::Str: return quote ? "\"" + v.s + "\"" : v.s;
     case VT::List: {
@@ -1065,7 +1378,22 @@ std::string toStr(const Value& v, bool quote = false) {
   return "";
 }
 
+// يحوّل رقماً عادياً صحيحاً إلى BigInt (إن أمكن)
+bool numToBig(const Value& v, BigInt& out) {
+  if (v.t == VT::Big) { out = *v.big; return true; }
+  if (v.t == VT::Num && v.n == std::floor(v.n) && std::fabs(v.n) < 9e18) {
+    out = BigInt::fromInt(static_cast<long long>(v.n));
+    return true;
+  }
+  return false;
+}
+
 bool equals(const Value& a, const Value& b) {
+  if (a.t == VT::Big || b.t == VT::Big) {
+    BigInt x, y;
+    if (!numToBig(a, x) || !numToBig(b, y)) return false;
+    return BigInt::cmp(x, y) == 0;
+  }
   if (a.t != b.t) return false;
   switch (a.t) {
     case VT::Null: return true;
@@ -1080,13 +1408,56 @@ bool equals(const Value& a, const Value& b) {
       return true;
     case VT::Func: return a.fn == b.fn;
     case VT::Native: return a.nat == b.nat;
+    case VT::Big: return false;
   }
   return false;
+}
+
+Value bigBinop(const std::string& op, const Value& a, const Value& b, int line) {
+  auto okT = [](const Value& v) { return v.t == VT::Big || v.t == VT::Num; };
+  if (!okT(a) || !okT(b)) {
+    if (op == "<" || op == ">" || op == "<=" || op == ">=")
+      fail(line, "لا يمكن مقارنة " + typeName(a) + " مع " + typeName(b));
+    fail(line, "العملية '" + op + "' تتطلب رقمين لكن وُجد " + typeName(a) + " و" + typeName(b));
+  }
+  BigInt x, y;
+  bool cx = numToBig(a, x), cy = numToBig(b, y);
+  try {
+    if (op == "<" || op == ">" || op == "<=" || op == ">=") {
+      int c;
+      if (cx && cy) c = BigInt::cmp(x, y);
+      else {
+        double dx = a.t == VT::Big ? a.big->toDouble() : a.n, dy = b.t == VT::Big ? b.big->toDouble() : b.n;
+        c = dx < dy ? -1 : (dx > dy ? 1 : 0);
+      }
+      if (op == "<") return mkBool(c < 0);
+      if (op == ">") return mkBool(c > 0);
+      if (op == "<=") return mkBool(c <= 0);
+      return mkBool(c >= 0);
+    }
+    if (!cx || !cy)
+      fail(line, "لا يمكن خلط عدد كبير مع رقم عشري أو ضخم جداً؛ حوّله أولاً بـ $كبير(...)");
+    if (op == "+") return mkBig(BigInt::add(x, y));
+    if (op == "-") return mkBig(BigInt::sub(x, y));
+    if (op == "*") return mkBig(BigInt::mul(x, y));
+    if (op == "/" || op == "%") {
+      if (y.zero()) fail(line, "القسمة على صفر");
+      BigInt q, r;
+      BigInt::divmod(x, y, q, r);
+      return mkBig(op == "/" ? q : r);
+    }
+  } catch (EEError& e) {
+    if (e.line == 0) e.line = line;
+    throw;
+  }
+  fail(line, "عملية غير معروفة: " + op);
 }
 
 Value binop(const std::string& op, const Value& a, const Value& b, int line) {
   if (op == "==") return mkBool(equals(a, b));
   if (op == "!=") return mkBool(!equals(a, b));
+  if ((a.t == VT::Big || b.t == VT::Big) && a.t != VT::Str && b.t != VT::Str)
+    return bigBinop(op, a, b, line);
   if (op == "+") {
     if (a.t == VT::Num && b.t == VT::Num) return mkNum(a.n + b.n);
     if (a.t == VT::Str || b.t == VT::Str) return mkStr(toStr(a) + toStr(b));
@@ -1168,7 +1539,16 @@ struct Interp {
                    std::to_string(a.size()));
     }
   }
+  static Value toBigArg(const char* name, const Value& v, int ln) {
+    if (v.t == VT::Big) return v;
+    BigInt b;
+    if (v.t == VT::Num && numToBig(v, b)) return mkBig(b);
+    if (v.t == VT::Str && BigInt::parse(v.s, b)) return mkBig(b);
+    fail(ln, std::string("المفهوم $") + name + " يتطلب عدداً صحيحاً (أو نصاً من أرقام) لكن وُجد " + typeName(v) +
+                 (v.t == VT::Num ? " غير صحيح" : ""));
+  }
   static double needNum(const char* name, const Value& v, int ln) {
+    if (v.t == VT::Big) return v.big->toDouble();
     if (v.t != VT::Num) fail(ln, std::string("المفهوم $") + name + " يتطلب رقماً لكن وُجد " + typeName(v));
     return v.n;
   }
@@ -1308,6 +1688,7 @@ struct Interp {
       argc("رقم", a, 1, 1, ln);
       const Value& v = a[0];
       if (v.t == VT::Num) return v;
+      if (v.t == VT::Big) return mkNum(v.big->toDouble());
       if (v.t == VT::Bool) return mkNum(v.b ? 1 : 0);
       if (v.t == VT::Str) {
         std::string t = toAsciiDigits(v.s);
@@ -1319,6 +1700,34 @@ struct Interp {
         return mkNum(d);
       }
       return Value();
+    });
+    reg("كبير", [](Interp&, Args& a, int ln) {
+      argc("كبير", a, 1, 1, ln);
+      return toBigArg("كبير", a[0], ln);
+    });
+    reg("اس_كبير", [](Interp&, Args& a, int ln) {
+      argc("اس_كبير", a, 2, 2, ln);
+      Value b = toBigArg("اس_كبير", a[0], ln);
+      if (a[1].t != VT::Num || a[1].n < 0 || a[1].n != std::floor(a[1].n) || a[1].n > 1e9)
+        fail(ln, "الأس في $اس_كبير يجب أن يكون عدداً صحيحاً غير سالب");
+      try {
+        return mkBig(BigInt::pow(*b.big, static_cast<unsigned long long>(a[1].n)));
+      } catch (EEError& e) { if (e.line == 0) e.line = ln; throw; }
+    });
+    reg("اس_بالباقي", [](Interp&, Args& a, int ln) {
+      argc("اس_بالباقي", a, 3, 3, ln);
+      Value b = toBigArg("اس_بالباقي", a[0], ln), e = toBigArg("اس_بالباقي", a[1], ln),
+            m = toBigArg("اس_بالباقي", a[2], ln);
+      try {
+        return mkBig(BigInt::modpow(*b.big, *e.big, *m.big));
+      } catch (EEError& x) { if (x.line == 0) x.line = ln; throw; }
+    });
+    reg("اولي_كبير", [](Interp&, Args& a, int ln) {
+      argc("اولي_كبير", a, 1, 1, ln);
+      Value b = toBigArg("اولي_كبير", a[0], ln);
+      try {
+        return mkBool(BigInt::isPrime(*b.big));
+      } catch (EEError& x) { if (x.line == 0) x.line = ln; throw; }
     });
     reg("نوع", [](Interp&, Args& a, int ln) {
       argc("نوع", a, 1, 1, ln);
@@ -1450,6 +1859,11 @@ struct Interp {
     switch (e->k) {
       case EK::Num: return mkNum(e->num);
       case EK::Str: return mkStr(e->s);
+      case EK::BigLit: {
+        BigInt b;
+        if (!BigInt::parse(e->s, b)) fail(e->line, "رقم غير صالح");
+        return mkBig(b);
+      }
       case EK::Bool: return mkBool(e->b);
       case EK::Null: return Value();
       case EK::Var: {
@@ -1470,6 +1884,11 @@ struct Interp {
       case EK::Unary: {
         Value v = eval(e->l, env);
         if (e->s == "-") {
+          if (v.t == VT::Big) {
+            BigInt r = *v.big;
+            if (!r.zero()) r.neg = !r.neg;
+            return mkBig(r);
+          }
           if (v.t != VT::Num) fail(e->line, "لا يمكن عكس إشارة قيمة من نوع " + typeName(v));
           return mkNum(-v.n);
         }
