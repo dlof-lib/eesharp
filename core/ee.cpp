@@ -89,6 +89,7 @@ bool isIdentStart(uint32_t cp) {
   if (isInvisible(cp) || digitValue(cp) >= 0) return false;
   switch (cp) {
     case 0x60C: case 0x61B: case 0x61F: case 0x66A: case 0x66B: case 0x66C: case 0x66D:
+    case 0xD7: case 0xF7: case 0x2212: case 0x2260: case 0x2264: case 0x2265: case 0x2190:
     case 0xAB: case 0xBB: case 0x2018: case 0x2019: case 0x201C: case 0x201D:
       return false;
     default:
@@ -350,6 +351,34 @@ std::vector<Token> lex(const std::string& s) {
       out.push_back(t);
       i = j + 2;
       continue;
+    }
+
+    // رموز رياضية يونيكود: × ÷ − ٪ ≠ ≤ ≥ ←   (و ×= ÷= −= للإسناد المركّب)
+    {
+      const char* mapped = nullptr;
+      switch (cp) {
+        case 0xD7: mapped = "*"; break;
+        case 0xF7: mapped = "/"; break;
+        case 0x2212: mapped = "-"; break;
+        case 0x66A: case 0x25: mapped = "%"; break;
+        case 0x2260: mapped = "!="; break;
+        case 0x2264: mapped = "<="; break;
+        case 0x2265: mapped = ">="; break;
+        case 0x2190: mapped = "="; break;
+        default: break;
+      }
+      if (mapped) {
+        std::string op = mapped;
+        size_t adv = len;
+        if (op.size() == 1 && op != "=" && i + len < s.size() && s[i + len] == '=' &&
+            (cp == 0xD7 || cp == 0xF7 || cp == 0x2212 || cp == 0x66A)) {
+          op += '=';
+          adv += 1;
+        }
+        push(TK::Op, op, line);
+        i += adv;
+        continue;
+      }
     }
 
     // معاملات من حرفين
