@@ -49,6 +49,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''   # الافتراضي 'tools platform-tools' ؛ الحزمة tools لم تعد موجودة فيفشل الإعداد
 
       - name: Install NDK and CMake
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
