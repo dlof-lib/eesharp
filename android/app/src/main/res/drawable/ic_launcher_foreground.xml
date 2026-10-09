@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- أيقونة EE#: حرفا E وعلامة # داخل المنطقة الآمنة (66dp من 108dp) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.86"
+        android:scaleY="0.86">
+        <!-- E الأولى -->
+        <path
+            android:fillColor="#F5EBD3"
+            android:pathData="M24,36h5v36h-5z M29,36h11v5h-11z M29,52h9v5h-9z M29,67h11v5h-11z" />
+        <!-- E الثانية -->
+        <path
+            android:fillColor="#F5EBD3"
+            android:pathData="M44,36h5v36h-5z M49,36h11v5h-11z M49,52h9v5h-9z M49,67h11v5h-11z" />
+        <!-- علامة # -->
+        <path
+            android:fillColor="#F2B84B"
+            android:pathData="M69,34h4v40h-4z M78,34h4v40h-4z M64,44h23v4h-23z M64,60h23v4h-23z" />
+    </group>
+</vector>
