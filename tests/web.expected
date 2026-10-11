@@ -1,0 +1,13 @@
+<p>&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;س&quot;</p>
+<a href="#">اضغط</a> <a href="https://a.b/?x=1&amp;y=2">آمن</a>
+<p style="color:red" class="مهم">أ<strong>ب</strong></p>
+<div class="ثانٍ card"><h3>ع</h3>ن</div>
+<ul><li>أ</li><li><strong>ب</strong></li><li>3</li></ul>
+<table><thead><tr><th>س</th></tr></thead><tbody><tr><td>1&lt;</td></tr><tr><td>2</td></tr></tbody></table>
+<div data-x="a&quot;b" hidden>نص<p>ج</p></div>
+<h2>مرحبا</h2> <img src="a.png" alt="وصف"> <button type="button" onclick="alert(1)">اضغط</button>
+<p>أ</p><p>ب</p> <p>أ</p><b>
+صح صح صح
+<svg class="bars" viewBox="0 0 600 260" role="img" aria-label="رسم بياني بالأعمدة"><rect x="68.0" y="126.0" width="174.0" height="98.0" rx="5"/><text x="155.0" y="120.0" text-anchor="middle">1</text><text x="155.0" y="248.0" text-anchor="middle">أ</text><rect x="358.0" y="28.0" width="174.0" height="196.0" rx="5"/><text x="445.0" y="22.0" text-anchor="middle">2</text><text x="445.0" y="248.0" text-anchor="middle">ب</text></svg>
+
+⚠ خطأ (السطر 13): مستوى العنوان من 1 إلى 6
