@@ -14,6 +14,10 @@
     <string name="output_hint">المخرجات ستظهر هنا…</string>
     <string name="running">… جارٍ التشغيل</string>
     <string name="no_output">(لا مخرجات)</string>
+    <string name="preview">🌐 معاينة</string>
+    <string name="no_page">شغّل برنامجاً ينتج صفحة ويب أولاً (مثل مثال صفحة_نتائج)</string>
+    <string name="save_html">حفظ HTML</string>
+    <string name="close">إغلاق</string>
     <string name="saved">تم الحفظ</string>
     <string name="opened">تم فتح الملف</string>
     <string name="io_error">تعذّرت العملية على الملف</string>
