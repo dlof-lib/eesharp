@@ -16,9 +16,9 @@ final class CodeFormatter {
 
     // رأس كتلة في أول السطر: لو، كرر، لكل، مفهوم
     private static final Pattern HEAD = Pattern.compile(
-            "^(لو|اذا|إذا|كرر|طالما|لكل|مفهوم|دالة|وظيفة)" + WA);
+            "^(لو|اذا|إذا|كرر|طالما|لكل|مفهوم|دالة|وظيفة|صنف|حاول)" + WA);
     // الحالة البديلة: والا / والا لو
-    private static final Pattern ELSE = Pattern.compile("^(?:والا|وإلا|غير_ذلك)" + WA);
+    private static final Pattern ELSE = Pattern.compile("^(?:والا|وإلا|غير_ذلك|امسك|اخيرا)" + WA);
     // غلاف البرنامج: محتواه بلا إزاحة إضافية
     private static final Pattern PROGRAM = Pattern.compile("^(?:برنامج|ابدأ)" + WA);
     // مفهوم مجهول في وسط السطر:  = مفهوم(<<س>>)
@@ -52,6 +52,8 @@ final class CodeFormatter {
             case "لو": case "اذا": case "إذا": return "لو";
             case "كرر": case "طالما": return "كرر";
             case "لكل": return "لكل";
+            case "صنف": return "صنف";
+            case "حاول": return "حاول";
             default: return "مفهوم";
         }
     }
@@ -118,6 +120,7 @@ final class CodeFormatter {
         StringBuilder sb = new StringBuilder();
         ArrayDeque<String> stack = new ArrayDeque<>(); // "برنامج" أو نوع الكتلة
         int level = 0;
+        int paren = 0; // أقواس ( و [ المفتوحة عبر الأسطر: أسطر التتمة تُزاح مستوى إضافياً
 
         for (int i = 0; i < lines.length; i++) {
             String t = lines[i].trim();
@@ -152,10 +155,18 @@ final class CodeFormatter {
                 t = "نهاية " + closedKind;
             }
 
+            int lead = 0;
+            while (lead < clean.length() && (clean.charAt(lead) == ')' || clean.charAt(lead) == ']')) lead++;
+            printLevel += Math.min(4, Math.max(0, paren - lead));
             for (int k = 0; k < printLevel; k++) sb.append(INDENT);
             sb.append(t);
             if (!last) sb.append('\n');
 
+            for (int k = 0; k < clean.length(); k++) {
+                char c = clean.charAt(k);
+                if (c == '(' || c == '[') paren++;
+                else if ((c == ')' || c == ']') && paren > 0) paren--;
+            }
             if (PROGRAM.matcher(clean).find()) stack.push("برنامج");
             for (int k = from; k < ev.size(); k++) {
                 if (ev.get(k).type == OPEN) {
