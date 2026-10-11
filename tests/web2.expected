@@ -1,0 +1,7 @@
+<div class="ee-a-alert danger" role="alert"><span class="i">⛔</span><div>&lt;b&gt;x&lt;/b&gt;</div></div>
+<span class="ee-a-badge ok">جديد</span>
+<nav aria-label="ترقيم الصفحات"><ul class="ee-n-pages"><li><a href="?page=1" aria-label="السابق">→</a></li><li><a href="?page=1">1</a></li><li aria-current="page"><span class="cur">2</span></li><li><a href="?page=3">3</a></li><li><a href="?page=3" aria-label="التالي">←</a></li></ul></nav>
+<a class="ee-b-btn primary" href="#">اذهب</a>
+<div class="ee-u-prog"><div class="t"><span>ت</span><span>100%</span></div><div class="tr" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"><div class="fl" style="width:100%"></div></div></div>
+<span class="ee-d-stars" style="--v:3;--n:5" role="img" aria-label="تقييم 3 من 5">★★★★★</span>
+<ul class="ee-d-check"><li>أ</li><li class="on">ب</li></ul>
