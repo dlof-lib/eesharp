@@ -90,6 +90,14 @@
                 android:textColor="@color/bar_fg" />
 
             <Button
+                android:id="@+id/btnPreview"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/preview"
+                android:textColor="@color/bar_fg" />
+
+            <Button
                 android:id="@+id/btnTheme"
                 style="?android:attr/buttonBarButtonStyle"
                 android:layout_width="wrap_content"
