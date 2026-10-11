@@ -11,6 +11,9 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -28,6 +31,7 @@ import java.util.List;
 public class MainActivity extends Activity {
     private static final int REQ_OPEN = 1;
     private static final int REQ_SAVE = 2;
+    private static final int REQ_SAVE_HTML = 3;
     private static final String PREFS = "ee_prefs";
     private static final String KEY_CODE = "code";
     private static final String KEY_STDIN = "stdin";
@@ -51,7 +55,7 @@ public class MainActivity extends Activity {
     private static final String[] SYMBOLS = {
         "$", "<<" + CARET + ">>", "_", "\"" + CARET + "\"", "(", ")", "[", "]", "،", "؛",
         "=", "+=", "+", "-", "*", "/", "%", "<", ">", "<=", ">=",
-        "×", "÷", "−", "٪", "≠", "≤", "≥", "←", "×=", "÷=", "#", "//",
+        "=>", "&", ".", ":", "<<هذا>>.", "صنف $", "حاول", "امسك <<خ>>", "اخيرا", "يرث $", "×", "÷", "−", "٪", "≠", "≤", "≥", "←", "×=", "÷=", "#", "//",
         "متغير <<" + CARET + ">> = ", "لو ", "والا", "كرر ", "لكل <<" + CARET + ">> في ",
         "مفهوم $", "ارجع ", "نهاية ", "توقف", "استمر",
         " اكبر من ", " اصغر من ", " = ", " لا = ", " و ", " او ", "ليس ",
@@ -63,6 +67,7 @@ public class MainActivity extends Activity {
     private EditText editor;
     private EditText stdin;
     private TextView output;
+    private String lastHtml; // آخر مخرجات كانت صفحة HTML كاملة
     private View root;
     private View symbolScroll;
     private volatile boolean running = false;
@@ -132,6 +137,7 @@ public class MainActivity extends Activity {
             editor.setSelection(Math.max(0, Math.min(caret, editor.getText().length())));
             Toast.makeText(this, R.string.formatted, Toast.LENGTH_SHORT).show();
         });
+        findViewById(R.id.btnPreview).setOnClickListener(v -> previewWeb());
         findViewById(R.id.btnTheme).setOnClickListener(v -> {
             dark = !dark;
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_DARK, dark).apply();
@@ -261,10 +267,51 @@ public class MainActivity extends Activity {
             final String text = new String(result, StandardCharsets.UTF_8);
             runOnUiThread(() -> {
                 output.setText(text.isEmpty() ? getString(R.string.no_output) : text);
+                String head = text.trim().toLowerCase(java.util.Locale.ROOT);
+                lastHtml = head.startsWith("<!doctype html") || head.startsWith("<html") ? text : null;
                 running = false;
             });
         }, "ee-run", 16L * 1024 * 1024);
         t.start();
+    }
+
+    // ── معاينة صفحة الويب الناتجة ──
+    private void previewWeb() {
+        if (lastHtml == null) {
+            Toast.makeText(this, R.string.no_page, Toast.LENGTH_LONG).show();
+            return;
+        }
+        final android.app.Dialog dlg = new android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setBackgroundColor(0xFF2B2A27);
+        Button close = new Button(this);
+        close.setText(R.string.close);
+        close.setOnClickListener(v -> dlg.dismiss());
+        Button saveHtml = new Button(this);
+        saveHtml.setText(R.string.save_html);
+        saveHtml.setOnClickListener(v -> {
+            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("text/html");
+            i.putExtra(Intent.EXTRA_TITLE, "صفحة.html");
+            startActivityForResult(i, REQ_SAVE_HTML);
+        });
+        bar.addView(close);
+        bar.addView(saveHtml);
+        WebView web = new WebView(this);
+        WebSettings ws = web.getSettings();
+        ws.setJavaScriptEnabled(true); // الصفحة من برنامج المستخدم نفسه
+        ws.setAllowFileAccess(false);
+        ws.setAllowContentAccess(false);
+        web.loadDataWithBaseURL(null, lastHtml, "text/html", "UTF-8", null);
+        root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        dlg.setContentView(root);
+        dlg.setOnDismissListener(d -> web.destroy());
+        dlg.show();
     }
 
     // ── فتح وحفظ الملفات (Storage Access Framework) ──
@@ -301,6 +348,12 @@ public class MainActivity extends Activity {
                     setCode(text);
                 }
                 Toast.makeText(this, R.string.opened, Toast.LENGTH_SHORT).show();
+            } else if (requestCode == REQ_SAVE_HTML && lastHtml != null) {
+                try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                    if (out == null) throw new java.io.IOException("no stream");
+                    out.write(lastHtml.getBytes(StandardCharsets.UTF_8));
+                }
+                Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show();
             } else if (requestCode == REQ_SAVE) {
                 try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
                     if (out == null) throw new java.io.IOException("no stream");
